@@ -9,7 +9,7 @@ Four sounds are bundled so it plays out of the box (a 1990s phone ring, a dog,
 a pig and a cat); add your own from a microSD card.
 
 **Get it from the MicroPythonOS app store (BadgeHub project
-`com.cliptv.cliptv`), or scan the QR on [www.ZapTV.org](https://www.zaptv.org#cliptv).**
+`com.zaptv.cliptv`), or scan the QR on [www.ZapTV.org](https://www.zaptv.org#cliptv).**
 
 ## Features
 
@@ -105,12 +105,12 @@ buttons.
 
 ## Installing
 
-The app lives in `com.cliptv.cliptv/`, a standard MicroPythonOS app folder.
+The app lives in `com.zaptv.cliptv/`, a standard MicroPythonOS app folder.
 
 On a device (via `mpremote`):
 
 ```bash
-mpremote cp -r com.cliptv.cliptv :/apps/
+mpremote cp -r com.zaptv.cliptv :/apps/
 ```
 
 then reset the device (or run `AppManager.refresh_apps()`).
@@ -118,7 +118,7 @@ then reset the device (or run `AppManager.refresh_apps()`).
 For desktop development, symlink the app into a MicroPythonOS checkout:
 
 ```bash
-ln -s "$(pwd)/com.cliptv.cliptv" /path/to/MicroPythonOS/internal_filesystem/apps/
+ln -s "$(pwd)/com.zaptv.cliptv" /path/to/MicroPythonOS/internal_filesystem/apps/
 ```
 
 On desktop builds the app plays through the host's audio output; the PCM5102A
@@ -129,16 +129,16 @@ pin settings only appear when running on ESP32 hardware.
 From the repo root, a deterministic package for BadgeHub:
 
 ```bash
-find com.cliptv.cliptv -exec touch -t 202501010000.00 {} \;
-(find com.cliptv.cliptv -type d; find com.cliptv.cliptv -type f) | sort | TZ=CET zip -X -r -0 dist/com.cliptv.cliptv_<version>.mpk -@
+find com.zaptv.cliptv -exec touch -t 202501010000.00 {} \;
+(find com.zaptv.cliptv -type d; find com.zaptv.cliptv -type f) | sort | TZ=CET zip -X -r -0 dist/com.zaptv.cliptv_<version>.mpk -@
 ```
 
 ## Licence
 
 ClipTV is released under the [MIT License](LICENSE).
 
-The bundled sounds in `com.cliptv.cliptv/clips/` carry their own licences,
+The bundled sounds in `com.zaptv.cliptv/clips/` carry their own licences,
 listed with sources and attribution in
-[`com.cliptv.cliptv/clips/README.md`](com.cliptv.cliptv/clips/README.md):
+[`com.zaptv.cliptv/clips/README.md`](com.zaptv.cliptv/clips/README.md):
 the phone ring and cat are CC0, the pig is public domain, and the dog bark is
 CC BY-SA 4.0 (Dr. Nono YesMaybe, Wikimedia Commons).
