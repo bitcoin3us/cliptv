@@ -9,7 +9,7 @@ from mpos import AudioManager, SDCardManager, SharedPreferences
 
 logger = logging.getLogger(__name__)
 
-APP_ID = "com.zaptv.cliptv"
+APP_ID = "org.zaptv.cliptv"
 APP_NAME = "ClipTV"
 APP_VERSION = "0.8.0"
 
