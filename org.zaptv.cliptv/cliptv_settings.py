@@ -707,7 +707,8 @@ class AboutActivity(Activity):
             "ClipTV ships with a few sample sounds (a 1990s telephone "
             "ring, a dog, a pig and a cat) so there is something to play "
             "out of the box. Add your own on a FAT32 SD card, e.g. in %s. "
-            "Audio: WAV (16-bit PCM). Video: raw RGB565 (.rgb565) named "
+            "Audio: WAV (16-bit PCM). Video: MJPEG (.mjpeg, shown at its "
+            "encoded size) or raw RGB565 (.rgb565, scaled to fit) named "
             "like clip_160x120_12fps.rgb565, with an optional companion "
             ".wav of the same name for sound. See the README for ffmpeg "
             "conversion commands." % cliptv_common.CLIPS_DIR,

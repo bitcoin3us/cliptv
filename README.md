@@ -27,8 +27,8 @@ a pig and a cat); add your own from a microSD card.
 - Buttons can be renamed, colour-coded (eighteen colours) and assigned to any
   clip, bundled or from the SD card.
 - Volume control in the header, remembered between sessions.
-- Audio clips: WAV. Video clips: raw RGB565 (`.rgb565`), with an optional
-  companion `.wav` soundtrack of the same basename.
+- Audio clips: WAV. Video clips: MJPEG (`.mjpeg`) or raw RGB565 (`.rgb565`),
+  with an optional companion `.wav` soundtrack of the same basename.
 - Settings page: assign buttons, buttons per screen, volume, DAC pin
   configuration (2" board), and an About page.
 
@@ -42,9 +42,9 @@ SDMMC on GPIO 11/10/9 with its chip-select on the board's IO expander).
 
 Playback notes for this board: ClipTV keeps the codec and I2S clocks warm for
 30 s after a clip so rapid back-to-back presses play without a click (the OS
-releases them on idle). Video clips are scaled to fill the 480x320 screen;
-160x120 at 12 fps plays smoothly, and higher rates are limited by rendering
-rather than storage.
+releases them on idle). MJPEG clips play at about 8 fps at 320x240 or 15 fps
+at 160x120 (decoder-bound); raw RGB565 clips are scaled to fill the 480x320
+screen and top out around 6 fps.
 
 ### Waveshare ESP32-S3-Touch-LCD-2 with a PCM5102A I2S DAC
 
@@ -78,11 +78,26 @@ Audio (WAV, 16-bit PCM; mono keeps files small):
 ffmpeg -i input.mp3 -ar 22050 -ac 1 -c:a pcm_s16le clips/airhorn.wav
 ```
 
-Video is raw RGB565 (no decoder needed on the device; frames stream straight
-from storage to the screen). The filename must carry the dimensions and may
-carry the frame rate: `<name>_<W>x<H>_<fps>fps.rgb565`. ClipTV scales the video
-up to fill the screen; 160x120 at 12 fps is a good balance of quality and
-speed:
+Video comes in two formats. The filename must carry the dimensions and the
+frame rate either way: `<name>_<W>x<H>_<fps>fps.<ext>`.
+
+**MJPEG** (`.mjpeg`) is the recommended format: a plain stream of JPEG frames
+that the firmware decodes from RAM, so files are 10 to 20 times smaller than
+raw video and storage speed stops being the limit. Frames are shown at their
+encoded size, centred on the screen, so encode at the size you want to see.
+The decoder sets the pace: on the ESP32-S3 it manages about 8 fps at 320x240
+and about 15 fps at 160x120, and ClipTV keeps a clip in real time by
+skipping frames when it falls behind, so encode at those rates or lower for
+smooth playback (the `-q:v` value trades quality for size; 5 to 8 is good):
+
+```bash
+ffmpeg -i input.mp4 -vf "scale=320:240,fps=8" -c:v mjpeg -q:v 7 -f mjpeg clips/dance_320x240_8fps.mjpeg
+ffmpeg -i input.mp4 -vf "scale=160:120,fps=15" -c:v mjpeg -q:v 7 -f mjpeg clips/dance_160x120_15fps.mjpeg
+```
+
+**Raw RGB565** (`.rgb565`) needs no decoder (frames stream straight from
+storage to the screen) and is scaled up to fill the display, but at about
+460 KB/s for 160x120 @ 12 fps it is limited by storage speed:
 
 ```bash
 ffmpeg -i input.mp4 -vf "scale=160:120,fps=12" -f rawvideo -pix_fmt rgb565le clips/dance_160x120_12fps.rgb565
@@ -94,8 +109,8 @@ Optional soundtrack for a video clip (same basename, `.wav` extension):
 ffmpeg -i input.mp4 -ar 22050 -ac 1 -c:a pcm_s16le clips/dance_160x120_12fps.wav
 ```
 
-Raw video is large (about 460 KB/s at 160x120 @ 12 fps): keep clips short or
-use a big card.
+Raw video is large: keep such clips short or use a big card. MJPEG clips
+are small enough to keep many on the card.
 
 The `samples/` folder contains ready-made test clips: the four bundled sounds,
 a 3-second tone (`tone3s.wav`) and a bouncing-square video with soundtrack

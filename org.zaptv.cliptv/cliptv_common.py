@@ -42,7 +42,7 @@ SD_SLOTS = {
 CLIPS_DIR = "/sdcard/clips"
 
 AUDIO_EXTENSIONS = (".wav",)
-VIDEO_EXTENSIONS = (".rgb565",)
+VIDEO_EXTENSIONS = (".rgb565", ".mjpeg", ".mjpg")
 
 # Button "action" values: instead of one fixed clip, the button picks a
 # random clip of the given kind every time it is pressed (and, with loop

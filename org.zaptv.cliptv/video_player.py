@@ -1,4 +1,5 @@
 import logging
+import time
 
 import lvgl as lv
 
@@ -13,6 +14,17 @@ DEFAULT_FPS = 12
 MIN_FPS = 1
 MAX_FPS = 30
 BYTES_PER_PIXEL = 2  # RGB565
+
+MJPEG_EXTENSIONS = (".mjpeg", ".mjpg")
+_JPEG_SOI = b"\xff\xd8"
+_JPEG_EOI = b"\xff\xd9"
+_MJPEG_READ_CHUNK = 32 * 1024
+# LVGL keeps decoded images in a cache keyed by the descriptor's address and
+# the binding exposes no way to drop entries, so a recycled descriptor address
+# would be served the previously decoded frame. Recent descriptors are kept
+# alive until the cache (this many bytes on MicroPythonOS builds) has had to
+# evict their entries, and only then released for reuse.
+_LVGL_IMAGE_CACHE_BYTES = 3686400
 
 
 def parse_video_filename(path):
@@ -41,7 +53,7 @@ def parse_video_filename(path):
 
 
 class VideoPlayerActivity(Activity):
-    """Plays a raw RGB565 video clip (.rgb565) fullscreen.
+    """Plays a raw RGB565 (.rgb565) or MJPEG (.mjpeg) video clip.
 
     The file is a plain sequence of little-endian RGB565 frames; width,
     height and frame rate are encoded in the filename, for example
@@ -58,6 +70,22 @@ class VideoPlayerActivity(Activity):
         extras = self.getIntent().extras or {}
         self._reader_file = None
         self._timer = None
+        self._mjpeg = False
+        self._mj_buf = None
+        self._mj_len = 0
+        self._mj_pos = 0
+        self._mj_ring = []        # [dsc, bytearray] slots, reused round-robin
+        self._mj_ring_i = 0
+        self._mj_ring_len = 8
+        self._mj_frames_shown = 0
+        self._mj_start_ms = 0
+        self._mj_period_ms = 1000 // DEFAULT_FPS
+        self._mj_file_off = 0     # file offset of buffer byte 0
+        self._mj_avg_frame = 0    # running average encoded frame size
+        self._mj_frames_read = 0
+        # Per-phase timing (microseconds) and counters, readable by test tools.
+        self._mj_prof = {"skip_us": 0, "read_us": 0, "copy_us": 0, "dsc_us": 0,
+                         "setsrc_us": 0, "gc_us": 0, "ticks": 0, "skipped": 0, "fills": 0}
         self._audio_player = None
         self._buffers = None
         self._buffer_index = 0
@@ -116,6 +144,9 @@ class VideoPlayerActivity(Activity):
             self._status_label.set_text("Could not open\n%s" % clip)
             return False
 
+        if clip.lower().endswith(MJPEG_EXTENSIONS):
+            return self._open_mjpeg(clip, reader_file, width, height, fps)
+
         frame_size = width * height * BYTES_PER_PIXEL
         if not self._buffers or len(self._buffers[0]) != frame_size:
             try:
@@ -161,6 +192,228 @@ class VideoPlayerActivity(Activity):
                 pass
         return True
 
+    # ------------------------------------------------------------------
+    #  MJPEG: a plain stream of JPEG frames (ffmpeg -f mjpeg), decoded by the
+    #  firmware's JPEG decoder straight from RAM. Frames are shown at their
+    #  native size, centred: scaling a decoded JPEG is not supported by the
+    #  LVGL build, so encode clips at the size they should appear.
+    # ------------------------------------------------------------------
+
+    def _open_mjpeg(self, clip, reader_file, width, height, fps):
+        self._close_reader()
+        self._stop_companion_audio()
+        self._mjpeg = True
+        self._clip = clip
+        self._reader_file = reader_file
+        self._width, self._height, self._fps = width, height, fps
+        if self._mj_buf is None:
+            self._mj_buf = bytearray(2 * _MJPEG_READ_CHUNK)
+        self._mj_len = 0
+        self._mj_pos = 0
+        # The ring must be longer than the image cache can hold decoded frames
+        # of this size, so a slot is only reused once its cached decode is gone.
+        self._mj_ring_len = _LVGL_IMAGE_CACHE_BYTES // (width * height * BYTES_PER_PIXEL) + 4
+        self._mj_ring = []
+        self._mj_ring_i = 0
+        self._mj_frames_shown = 0
+        self._mj_start_ms = time.ticks_ms()
+        self._mj_period_ms = 1000 // fps
+        self._mj_file_off = 0
+        self._mj_avg_frame = 0
+        self._mj_frames_read = 0
+
+        self._image.set_size(width, height)
+        self._image.set_scale(256)
+        self._image.center()
+
+        self._start_companion_audio()
+        if self._timer:
+            try:
+                self._timer.set_period(1000 // self._fps)
+            except AttributeError:
+                pass
+        return True
+
+    def _mj_fill(self, want=None):
+        """Read more of the file into the buffer; False at end of file.
+
+        Reads are the expensive part of MJPEG playback (storage delivers
+        about 1 MB/s, whatever the chunk size), so `want` lets a caller
+        read only what it expects to need, e.g. after a seek.
+        """
+        buf = self._mj_buf
+        want = want or _MJPEG_READ_CHUNK
+        if self._mj_pos:
+            # Drop consumed bytes so the buffer only holds the pending frame.
+            # Copied via memoryviews: a plain slice would allocate a temporary
+            # the size of the tail, and every large allocation risks a full
+            # garbage collection while the decoded-frame cache fills the heap.
+            n = self._mj_len - self._mj_pos
+            mv = memoryview(buf)
+            buf[0:n] = mv[self._mj_pos:self._mj_len]
+            self._mj_len -= self._mj_pos
+            self._mj_file_off += self._mj_pos
+            self._mj_pos = 0
+        if len(buf) - self._mj_len < want:
+            grown = bytearray(max(len(buf) * 2, self._mj_len + want))
+            grown[0:self._mj_len] = buf[0:self._mj_len]
+            self._mj_buf = buf = grown
+        n = self._reader_file.readinto(memoryview(buf)[self._mj_len:self._mj_len + want])
+        self._mj_prof["fills"] += 1
+        if not n:
+            return False
+        self._mj_len += n
+        return True
+
+    def _mj_next_frame(self, skip=False, want=None):
+        """Return the next JPEG frame as bytes (or None at end of file).
+
+        With skip=True the frame is located but not copied out.
+        """
+        while True:
+            buf = self._mj_buf
+            start = buf.find(_JPEG_SOI, self._mj_pos, self._mj_len)
+            if start < 0:
+                # Keep the last byte: it may be the first half of a marker.
+                self._mj_pos = max(self._mj_pos, self._mj_len - 1)
+                if not self._mj_fill(want):
+                    return None
+                continue
+            end = buf.find(_JPEG_EOI, start + 2, self._mj_len)
+            if end < 0:
+                self._mj_pos = start
+                if not self._mj_fill(want):
+                    return None
+                continue
+            end += 2
+            self._mj_pos = end
+            self._mj_frames_read += 1
+            size = end - start
+            self._mj_avg_frame += (size - self._mj_avg_frame) // min(self._mj_frames_read, 16)
+            if skip:
+                return True
+            return self._mj_slot_for(buf, start, end)
+
+    def _mj_slot_for(self, buf, start, end):
+        """Copy a located frame into the next ring slot; return its descriptor."""
+        size = end - start
+        if len(self._mj_ring) < self._mj_ring_len:
+            data = bytearray(max(size, self._mj_avg_frame + self._mj_avg_frame // 4))
+            dsc = lv.image_dsc_t({
+                "header": {
+                    "magic": lv.IMAGE_HEADER_MAGIC,
+                    "w": self._width,
+                    "h": self._height,
+                    "stride": 0,
+                    "cf": lv.COLOR_FORMAT.RAW,
+                },
+                "data_size": size,
+                "data": None,
+            })
+            slot = [dsc, data]
+            self._mj_ring.append(slot)
+        else:
+            slot = self._mj_ring[self._mj_ring_i]
+            self._mj_ring_i = (self._mj_ring_i + 1) % self._mj_ring_len
+            if len(slot[1]) < size:
+                slot[1] = bytearray(size + size // 4)
+        data = slot[1]
+        data[0:size] = memoryview(buf)[start:end]
+        dsc = slot[0]
+        dsc.data = data
+        dsc.data_size = size
+        return dsc
+
+    def _mj_rewind(self):
+        self._reader_file.seek(0)
+        self._mj_len = 0
+        self._mj_pos = 0
+        self._mj_file_off = 0
+        self._mj_frames_shown = 0
+        self._mj_start_ms = time.ticks_ms()
+
+    def _mj_skip_ahead(self, count):
+        """Skip about `count` frames without reading them.
+
+        A raw MJPEG stream has no index, so the target is estimated from the
+        average encoded frame size and the stream is resynchronised on the
+        next start-of-image marker from there. Landing a frame early or
+        late is fine for pacing; reading the skipped frames would cost as
+        much as playing them. Returns False if the seek ran past the end.
+        """
+        if count <= 0 or not self._mj_avg_frame:
+            return True
+        target = self._mj_file_off + self._mj_pos + count * self._mj_avg_frame
+        try:
+            self._reader_file.seek(target)
+        except OSError:
+            return False
+        self._mj_file_off = target
+        self._mj_len = 0
+        self._mj_pos = 0
+        # Resync: consume the (partial) frame we landed in, reading only
+        # about one frame's worth to find its end.
+        if not self._mj_next_frame(skip=True, want=self._mj_avg_frame + self._mj_avg_frame // 2):
+            return False
+        self._mj_frames_shown += count
+        return True
+
+    def _show_next_mjpeg_frame(self):
+        # Wall-clock pacing: when decoding falls behind the declared rate,
+        # skip frames instead of slowing the clip down, so it keeps real
+        # time and stays in sync with its soundtrack.
+        tick_start = time.ticks_ms()
+        prof = self._mj_prof
+        elapsed = time.ticks_diff(tick_start, self._mj_start_ms)
+        target = elapsed * self._fps // 1000
+        behind = target - self._mj_frames_shown
+        t = time.ticks_us()
+        # Skipping costs about one frame's worth of reading (seek + resync),
+        # so tolerate up to half a second of drift, then skip it all at once.
+        if behind >= max(3, self._fps // 2):
+            prof["skipped"] += behind - 1
+            self._mj_skip_ahead(behind - 1)
+        prof["skip_us"] += time.ticks_diff(time.ticks_us(), t)
+        t = time.ticks_us()
+        frame = self._mj_next_frame()
+        prof["read_us"] += time.ticks_diff(time.ticks_us(), t)
+        if frame is None:
+            if not self._next_after_end():
+                self.finish()
+                return
+            frame = self._mj_next_frame()
+            if frame is None:
+                self.finish()
+                return
+        self._mj_frames_shown += 1
+        dsc = frame
+        self._status_label.set_text("")
+        t = time.ticks_us()
+        self._image.set_src(dsc)
+        prof["setsrc_us"] += time.ticks_diff(time.ticks_us(), t)
+        prof["ticks"] += 1
+        self._mj_adapt_period(time.ticks_diff(time.ticks_ms(), tick_start))
+
+    def _mj_adapt_period(self, work_ms):
+        # Decoding happens inside the UI loop. If a frame takes longer than
+        # the timer period, back the period off so touch handling and the
+        # rest of the system keep getting time; skipping keeps the clip in
+        # real time regardless. Ease back towards the declared rate when
+        # frames get cheaper (a simpler scene, or the clip changed).
+        nominal = 1000 // self._fps
+        wanted = max(nominal, work_ms + work_ms // 2 + 4)
+        period = self._mj_period_ms
+        if wanted > period:
+            period = wanted
+        elif wanted < period:
+            period = max(nominal, period - 2)
+        if period != self._mj_period_ms and self._timer:
+            self._mj_period_ms = period
+            try:
+                self._timer.set_period(period)
+            except AttributeError:
+                pass
+
     def _start_companion_audio(self):
         dot = self._clip.rfind(".")
         wav_path = (self._clip[:dot] if dot > 0 else self._clip) + ".wav"
@@ -186,7 +439,10 @@ class VideoPlayerActivity(Activity):
             return False
         if self._loop:
             try:
-                self._reader_file.seek(0)
+                if self._mjpeg:
+                    self._mj_rewind()
+                else:
+                    self._reader_file.seek(0)
                 return True
             except OSError:
                 return False
@@ -194,6 +450,9 @@ class VideoPlayerActivity(Activity):
 
     def _show_next_frame(self, timer=None):
         if not self._reader_file:
+            return
+        if self._mjpeg:
+            self._show_next_mjpeg_frame()
             return
         buffer = self._buffers[self._buffer_index]
         self._buffer_index = 1 - self._buffer_index
@@ -241,6 +500,8 @@ class VideoPlayerActivity(Activity):
         self._stop_companion_audio()
         self._close_reader()
         self._buffers = None
+        self._mj_buf = None
+        self._mj_ring = []
 
     def onStop(self, screen):
         self._cleanup()
