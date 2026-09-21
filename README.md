@@ -42,9 +42,9 @@ SDMMC on GPIO 11/10/9 with its chip-select on the board's IO expander).
 
 Playback notes for this board: ClipTV keeps the codec and I2S clocks warm for
 30 s after a clip so rapid back-to-back presses play without a click (the OS
-releases them on idle). MJPEG clips play at about 8 to 12 fps at 160x120 and
-2 to 4 fps at 320x240 (decoder-bound); raw RGB565 clips are scaled to fill the
-480x320 screen and top out around 6 fps.
+releases them on idle). MJPEG clips play at their declared rate up to 15 fps at
+160x120 and about 8 fps at 320x240 with the native decoder (storage-bound);
+raw RGB565 clips are scaled to fill the 480x320 screen and top out around 6 fps.
 
 ### Waveshare ESP32-S3-Touch-LCD-2 with a PCM5102A I2S DAC
 
@@ -85,20 +85,23 @@ frame rate either way: `<name>_<W>x<H>_<fps>fps.<ext>`.
 that the firmware decodes from RAM, so files are 10 to 20 times smaller than
 raw video and storage speed stops being the limit. Frames are shown at their
 encoded size, centred on the screen, so encode at the size you want to see.
-The firmware's JPEG decoder sets the pace, and it is not fast: on the
-ESP32-S3 it manages roughly 8 to 12 fps at 160x120 and only 2 to 4 fps at
-320x240. ClipTV keeps a clip in real time by skipping frames when it falls
-behind, so encode small and slow for smooth playback: 160x120 at 8 to 10 fps
-is the sweet spot, 320x240 is watchable only as a slideshow (the `-q:v`
-value trades quality for size; 5 to 8 is good):
+ClipTV keeps a clip in real time by skipping frames when it falls behind, so
+encode at a rate the device can sustain. With MicroPythonOS firmware that has
+the native `jpegdec` decoder module (proposed upstream), decoding costs 5 ms at
+160x120 and 17 ms at 320x240, and playback is bound by storage reads instead:
+160x120 plays at its declared rate up to 15 fps, 320x240 up to about 8 fps
+(15 or 24 fps clips play at 9 to 10 fps). The `-q:v` value trades quality for
+size; 5 to 8 is good:
 
 ```bash
-ffmpeg -i input.mp4 -vf "scale=160:120,fps=10" -c:v mjpeg -q:v 7 -f mjpeg clips/dance_160x120_10fps.mjpeg
+ffmpeg -i input.mp4 -vf "scale=160:120,fps=15" -c:v mjpeg -q:v 7 -f mjpeg clips/dance_160x120_15fps.mjpeg
+ffmpeg -i input.mp4 -vf "scale=320:240,fps=8" -c:v mjpeg -q:v 7 -f mjpeg clips/dance_320x240_8fps.mjpeg
 ```
 
-MJPEG playback needs MicroPythonOS firmware built with LVGL's `LV_USE_FS_MEMFS`
-enabled (proposed upstream); without it the decoder cannot read frames from
-RAM and the video area stays black. Raw RGB565 works on any firmware.
+Without that module ClipTV falls back to LVGL's own JPEG decoder, which needs
+firmware built with `LV_USE_FS_MEMFS` (also proposed upstream) and is much
+slower: 8 to 12 fps at 160x120, 2 to 4 fps at 320x240. On firmware with
+neither, the MJPEG video area stays black; raw RGB565 works everywhere.
 
 **Raw RGB565** (`.rgb565`) needs no decoder (frames stream straight from
 storage to the screen) and is scaled up to fill the display, but at about

@@ -16,6 +16,10 @@ MAX_FPS = 30
 BYTES_PER_PIXEL = 2  # RGB565
 
 MJPEG_EXTENSIONS = (".mjpeg", ".mjpg")
+try:
+    import jpegdec  # native decoder (MicroPythonOS c_mpos); falls back to LVGL's if absent
+except ImportError:
+    jpegdec = None
 _JPEG_SOI = b"\xff\xd8"
 _JPEG_EOI = b"\xff\xd9"
 _MJPEG_READ_CHUNK = 32 * 1024
@@ -78,9 +82,14 @@ class VideoPlayerActivity(Activity):
         self._mj_ring_i = 0
         self._mj_ring_len = 8
         self._mj_drop = None
+        self._mj_native = False   # decode with jpegdec into RGB565 buffers
+        self._mj_last_jpeg = None
+        self._mj_rgb = None       # two (dsc, bytearray) RGB565 targets
+        self._mj_rgb_i = 0
         self._mj_frames_shown = 0
         self._mj_start_ms = 0
         self._mj_period_ms = 1000 // DEFAULT_FPS
+        self._mj_work_ema = 0   # smoothed tick cost, ms x16
         self._mj_file_off = 0     # file offset of buffer byte 0
         self._mj_avg_frame = 0    # running average encoded frame size
         self._mj_frames_read = 0
@@ -223,9 +232,35 @@ class VideoPlayerActivity(Activity):
             self._mj_ring_len = _LVGL_IMAGE_CACHE_BYTES // (width * height * BYTES_PER_PIXEL) + 4
         self._mj_ring = []
         self._mj_ring_i = 0
+        # Native path: the jpegdec module decodes straight into RGB565, which
+        # LVGL blits like a raw frame (no decoder, no image cache involved).
+        self._mj_native = jpegdec is not None
+        if self._mj_native:
+            frame_size = width * height * BYTES_PER_PIXEL
+            try:
+                self._mj_rgb = []
+                for _ in range(2):
+                    buf = bytearray(frame_size)
+                    dsc = lv.image_dsc_t({
+                        "header": {
+                            "magic": lv.IMAGE_HEADER_MAGIC,
+                            "w": width,
+                            "h": height,
+                            "stride": width * BYTES_PER_PIXEL,
+                            "cf": lv.COLOR_FORMAT.RGB565,
+                        },
+                        "data_size": frame_size,
+                        "data": None,
+                    })
+                    dsc.data = buf
+                    self._mj_rgb.append((dsc, buf))
+            except MemoryError:
+                self._mj_native = False
+                self._mj_rgb = None
         self._mj_frames_shown = 0
         self._mj_start_ms = time.ticks_ms()
         self._mj_period_ms = 1000 // fps
+        self._mj_work_ema = 0
         self._mj_file_off = 0
         self._mj_avg_frame = 0
         self._mj_frames_read = 0
@@ -336,6 +371,7 @@ class VideoPlayerActivity(Activity):
         dsc = slot[0]
         dsc.data = data
         dsc.data_size = size
+        self._mj_last_jpeg = memoryview(data)[0:size]
         return dsc
 
     def _mj_rewind(self):
@@ -401,6 +437,12 @@ class VideoPlayerActivity(Activity):
                 return
         self._mj_frames_shown += 1
         dsc = frame
+        if self._mj_native:
+            t = time.ticks_us()
+            dsc = self._mj_decode_native(frame)
+            prof["copy_us"] += time.ticks_diff(time.ticks_us(), t)
+            if dsc is None:
+                return
         self._status_label.set_text("")
         t = time.ticks_us()
         self._image.set_src(dsc)
@@ -408,19 +450,33 @@ class VideoPlayerActivity(Activity):
         prof["ticks"] += 1
         self._mj_adapt_period(time.ticks_diff(time.ticks_ms(), tick_start))
 
+    def _mj_decode_native(self, src_dsc):
+        """Decode the frame just placed in a ring slot into the next RGB565 target."""
+        target_dsc, target_buf = self._mj_rgb[self._mj_rgb_i]
+        self._mj_rgb_i = 1 - self._mj_rgb_i
+        try:
+            jpegdec.decode(self._mj_last_jpeg, target_buf)
+        except Exception as e:
+            logger.error("jpegdec failed: %s", e)
+            return None
+        return target_dsc
+
     def _mj_adapt_period(self, work_ms):
-        # Decoding happens inside the UI loop. If a frame takes longer than
-        # the timer period, back the period off so touch handling and the
-        # rest of the system keep getting time; skipping keeps the clip in
-        # real time regardless. Ease back towards the declared rate when
-        # frames get cheaper (a simpler scene, or the clip changed).
+        # Frame work happens inside the UI loop. Keep the timer period at
+        # least ~1.3x the smoothed per-tick cost so touch handling and the
+        # rest of the system keep getting time (skipping keeps the clip in
+        # real time regardless), but follow a moving average rather than
+        # single spikes, or one garbage-collection pause would throttle the
+        # whole clip.
         nominal = 1000 // self._fps
-        wanted = max(nominal, work_ms + work_ms // 2 + 4)
-        period = self._mj_period_ms
-        if wanted > period:
-            period = wanted
-        elif wanted < period:
-            period = max(nominal, period - 2)
+        ema = self._mj_work_ema
+        ema += (work_ms * 16 - ema) // 4 if ema else work_ms * 16
+        self._mj_work_ema = ema
+        avg = ema // 16
+        # Leave at least a third of every period, and never less than 15 ms,
+        # to the rest of the system (touch, the REPL, other apps' timers):
+        # ticks that fill the period starve them and can wedge the device.
+        period = max(nominal, avg + avg // 2 + 4, avg + 15)
         if period != self._mj_period_ms and self._timer:
             self._mj_period_ms = period
             try:
