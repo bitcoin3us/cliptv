@@ -77,6 +77,7 @@ class VideoPlayerActivity(Activity):
         self._mj_ring = []        # [dsc, bytearray] slots, reused round-robin
         self._mj_ring_i = 0
         self._mj_ring_len = 8
+        self._mj_drop = None
         self._mj_frames_shown = 0
         self._mj_start_ms = 0
         self._mj_period_ms = 1000 // DEFAULT_FPS
@@ -210,9 +211,16 @@ class VideoPlayerActivity(Activity):
             self._mj_buf = bytearray(2 * _MJPEG_READ_CHUNK)
         self._mj_len = 0
         self._mj_pos = 0
-        # The ring must be longer than the image cache can hold decoded frames
-        # of this size, so a slot is only reused once its cached decode is gone.
-        self._mj_ring_len = _LVGL_IMAGE_CACHE_BYTES // (width * height * BYTES_PER_PIXEL) + 4
+        # Firmware that exposes lv.image_cache_drop lets each frame's decode be
+        # dropped from LVGL's cache once shown, so a few slots suffice and the
+        # heap stays small. Otherwise the ring must be longer than the cache can
+        # hold decoded frames of this size, so a slot is only reused once its
+        # cached decode has been evicted.
+        self._mj_drop = getattr(lv, "image_cache_drop", None)
+        if self._mj_drop:
+            self._mj_ring_len = 4
+        else:
+            self._mj_ring_len = _LVGL_IMAGE_CACHE_BYTES // (width * height * BYTES_PER_PIXEL) + 4
         self._mj_ring = []
         self._mj_ring_i = 0
         self._mj_frames_shown = 0
@@ -315,6 +323,12 @@ class VideoPlayerActivity(Activity):
         else:
             slot = self._mj_ring[self._mj_ring_i]
             self._mj_ring_i = (self._mj_ring_i + 1) % self._mj_ring_len
+            if self._mj_drop:
+                # Shown several frames ago: forget its decode before reuse.
+                try:
+                    self._mj_drop(slot[0])
+                except Exception:
+                    self._mj_drop = None
             if len(slot[1]) < size:
                 slot[1] = bytearray(size + size // 4)
         data = slot[1]
@@ -501,6 +515,12 @@ class VideoPlayerActivity(Activity):
         self._close_reader()
         self._buffers = None
         self._mj_buf = None
+        if self._mj_drop:
+            for slot in self._mj_ring:
+                try:
+                    self._mj_drop(slot[0])
+                except Exception:
+                    pass
         self._mj_ring = []
 
     def onStop(self, screen):
