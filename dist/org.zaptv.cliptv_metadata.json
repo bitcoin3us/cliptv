@@ -1,0 +1,28 @@
+{
+  "project_type": "app",
+  "development_status": "stable",
+  "author": "Richard Nakamoto",
+  "categories": [
+    "Media",
+    "Utility"
+  ],
+  "badges": [
+    "mpos_api_0"
+  ],
+  "license_type": "GPL-3.0-or-later",
+  "name": "ClipTV",
+  "version": "0.12.2",
+  "git_url": "https://github.com/bitcoin3us/cliptv",
+  "description": "Soundboard for audio and video clips: big colour-coded buttons, playlists, random play, infinite loops.",
+  "long_description": "ClipTV turns your device into a soundboard: assign audio (.wav) and video (.mjpeg or .rgb565) clips to colorful buttons and play them with a single tap. Four sounds are bundled (a 1990s phone ring, a dog, a pig and a cat); add your own from a microSD card. Buttons can play a fixed clip, an ordered or shuffled playlist, or a random one (audio, video, or anything), optionally looping forever, with an equaliser animation while a sound plays and on-screen volume controls. Configure the number of buttons per screen, add extra screens with one tap, and rename and color-code every button. Runs on the Waveshare ESP32-S3-Touch-LCD-3.5 (onboard ES8311 speaker) and the ESP32-S3-Touch-LCD-2 (with a PCM5102A I2S DAC). Free software under the GNU GPL v3 or later.",
+  "icon_map": {
+    "64x64": "org.zaptv.cliptv_0.12.1_64x64.png"
+  },
+  "application": [
+    {
+      "type": "micropython",
+      "executable": "org.zaptv.cliptv_0.12.2.mpk"
+    }
+  ],
+  "license_file": "LICENSE"
+}
