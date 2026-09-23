@@ -1,3 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 ZapTV.org
+#
+# This file is part of ClipTV. ClipTV is free software: you can redistribute
+# it and/or modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version. It is distributed WITHOUT
+# ANY WARRANTY; see the GNU General Public License (LICENSE) for details.
+
 import logging
 import os
 import sys
@@ -712,6 +721,16 @@ class AboutActivity(Activity):
             "like clip_160x120_12fps.rgb565, with an optional companion "
             ".wav of the same name for sound. See the README for ffmpeg "
             "conversion commands." % cliptv_common.CLIPS_DIR,
+        )
+
+        # GPL section 5(d): an interactive program shows its legal notices.
+        self._add_label(screen, "Licence", is_header=True)
+        self._add_label(
+            screen,
+            "ClipTV is free software under the GNU General Public License, "
+            "version 3 or (at your option) any later version, with no "
+            "warranty. The bundled sample clips carry their own licences, "
+            "listed in clips/README.md.",
         )
 
         cliptv_grid.add_floating_back_button(screen)

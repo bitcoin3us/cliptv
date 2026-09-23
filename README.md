@@ -158,7 +158,7 @@ find org.zaptv.cliptv -exec touch -t 202501010000.00 {} \;
 
 ## Licence
 
-ClipTV is released under the [MIT License](LICENSE).
+ClipTV is free software, released under the [GNU GPL, version 3 or later](LICENSE).
 
 The bundled sounds in `org.zaptv.cliptv/clips/` carry their own licences,
 listed with sources and attribution in
