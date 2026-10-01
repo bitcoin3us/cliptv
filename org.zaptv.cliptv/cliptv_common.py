@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 APP_ID = "org.zaptv.cliptv"
 APP_NAME = "ClipTV"
-APP_VERSION = "0.12.2"
+APP_VERSION = "0.12.3"
 
 OUTPUT_NAME = "PCM5102A"
 

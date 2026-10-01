@@ -149,12 +149,30 @@ pin settings only appear when running on ESP32 hardware.
 
 ### Package as .mpk
 
-From the repo root, a deterministic package for BadgeHub:
+From the repo root, a deterministic package for BadgeHub, built from the
+committed tree (so local caches never sneak in) with the licence files
+alongside the app:
 
 ```bash
-find org.zaptv.cliptv -exec touch -t 202501010000.00 {} \;
-(find org.zaptv.cliptv -type d; find org.zaptv.cliptv -type f) | sort | TZ=CET zip -X -r -0 dist/org.zaptv.cliptv_<version>.mpk -@
+v=<version>; out="$PWD/dist/org.zaptv.cliptv_$v.mpk"; stage=$(mktemp -d)
+git archive HEAD org.zaptv.cliptv | tar -x -C "$stage"
+git archive HEAD LICENSE THIRD_PARTY.md | tar -x -C "$stage/org.zaptv.cliptv"
+find "$stage/org.zaptv.cliptv" -exec touch -t 202501010000.00 {} +
+(cd "$stage" && (find org.zaptv.cliptv -type d; find org.zaptv.cliptv -type f) | LC_ALL=C sort | TZ=CET zip -X -0 "$out" -@)
+cp org.zaptv.cliptv/icon_64x64.png "dist/org.zaptv.cliptv_${v}_64x64.png"
 ```
+
+## Artwork
+
+The launcher icon (`org.zaptv.cliptv/icon_64x64.png`) and the app store icon
+set (`store_icons/`) are generated from `artwork/cliptv-logo.svg`, the ZapTV
+family TV mark. After changing the SVG, regenerate them with:
+
+```bash
+python3 tools/build_assets.py           # --check only reports what would change
+```
+
+It needs `rsvg-convert` (`brew install librsvg`) and Pillow.
 
 ## Licence
 
