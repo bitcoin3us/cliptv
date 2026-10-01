@@ -1,7 +1,7 @@
 # ClipTV
 
 A soundboard app for [MicroPythonOS](https://micropythonos.com), part of the
-[ZapTV](https://www.zaptv.org) suite alongside ZapTV! and BlockTV: assign
+[ZapTV](https://www.zaptv.org) suite alongside ZapTV, BlockTV and ClankerTV: assign
 audio and video clips to big colour-coded buttons and play them with a single
 tap.
 

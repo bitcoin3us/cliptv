@@ -24,10 +24,10 @@ Outputs, all RGBA PNG with transparent corners (alpha 0, except that the
 trace of edge alpha, under 5%):
 
     org.zaptv.cliptv/icon_64x64.png   launcher icon
-    store_icons/icon-64x64.png        app store icon set, the same artwork
-    store_icons/icon-32x32.png        rendered once per size from the SVG,
-    store_icons/icon-16x16.png        never downscaled from the 64 px icon
-    store_icons/icon-8x8.png
+    store_icons/icon-64x64.png        app store icon set, the same artwork:
+    store_icons/icon-32x32.png        each size is downscaled from one large
+    store_icons/icon-16x16.png        render of the SVG, never from the 64 px
+    store_icons/icon-8x8.png          icon
 
 Every size uses the ZapTV family layout: the whole SVG viewBox fitted to the
 tile width and centred vertically, so at 64 px the mark is 64x57 at y=3.
@@ -104,7 +104,7 @@ def write(img, relpath, check):
     if os.path.exists(path):
         old = Image.open(path)
         if (old.mode == img.mode and old.size == img.size
-                and ImageChops.difference(old.convert("RGBA"), img).getbbox() is None):
+                and ImageChops.difference(old.convert("RGBA"), img).getbbox(alpha_only=False) is None):
             print(f"  unchanged   {relpath}")
             return False
     if check:
