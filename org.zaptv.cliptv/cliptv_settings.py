@@ -42,21 +42,25 @@ APP_LICENSE = ("© 2026 ZapTV.org. Free software:\n"
 APP_THIRD_PARTY = "Sample clips: see clips/README.md."
 LOGO_ASSET = "cliptv_lockup.png"
 LOGO_H = 44                 # About logo height in px, the same in every app
-# Tight spacing, so that the logo, three facts (a long board name takes two
-# lines), the site and five footer lines fit 240 px without scrolling. At
-# 12 px a line is 16 px tall; -3 closes the leading without glyphs touching.
-ABOUT_PAD_ROW = 3           # gap between the About screen's rows
+# Tight spacing, the same in every app, so that the logo, three facts (a
+# long board name takes two lines), the site and up to six footer lines
+# fit 240 px without scrolling. At 12 px a line is 16 px tall; -3 closes
+# the leading without glyphs touching.
+ABOUT_PAD_ROW = 1           # gap between the About screen's rows
 ABOUT_LINE_SPACE = -3       # leading inside the multi-line About labels
 _HW_ACRONYMS = ("lcd", "oled", "tft", "gps", "imu", "ir", "sd", "usb", "tv")
 
 
 def _hardware_id():
-    """The board id MicroPythonOS detected at boot, or None."""
+    """The board id MicroPythonOS detected at boot, or None. A board that
+    never registers itself leaves DeviceInfo's placeholder, which is no
+    more use to a reader than no id at all."""
     try:
         from mpos.device_info import DeviceInfo
-        return DeviceInfo.get_hardware_id()
+        board = DeviceInfo.get_hardware_id()
     except Exception:
         return None
+    return None if board == "missing-hardware-info" else board
 
 
 def _os_version():
@@ -810,7 +814,7 @@ class HelpActivity(Activity):
             "listed in clips/README.md.",
         )
 
-        cliptv_grid.add_floating_back_button(screen)
+        cliptv_grid.add_floating_back_button(screen, lv.ALIGN.BOTTOM_RIGHT)
 
         self.setContentView(screen)
 
@@ -940,7 +944,7 @@ class CliptvSettings(SettingsActivity):
         # SettingsActivity rebuilds (and cleans) the screen on every resume,
         # so the floating back button must be re-added afterwards.
         super().onResume(screen)
-        cliptv_grid.add_floating_back_button(screen)
+        cliptv_grid.add_floating_back_button(screen, lv.ALIGN.BOTTOM_RIGHT)
 
     def getIntent(self):
         prefs = cliptv_common.get_prefs()

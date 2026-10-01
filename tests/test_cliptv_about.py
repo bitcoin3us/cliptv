@@ -265,7 +265,7 @@ class TestClipTVAbout(unittest.TestCase):
         screen = self._open_about()
         self.assertEqual(screen.get_style_pad_top(0),
                          DisplayMetrics.pct_of_width(2))
-        self.assertTrue(3 <= screen.get_style_pad_row(0) <= 6)
+        self.assertEqual(screen.get_style_pad_row(0), 1)   # the family value
         logo = screen.get_child(0)
         x1, y1, x2, y2 = _coords(logo)
         self.assertEqual(y2 - y1 + 1, LOGO_H)
@@ -321,12 +321,16 @@ class TestClipTVAbout(unittest.TestCase):
             raise OSError(2)
 
         self._patch("open", no_file)
-        DeviceInfo.set_hardware_id(None)
-        BuildInfo.version.release = None
-        items, _ = _content(self._open_about())
-        self.assertEqual(items[1:4], [("fact", "ClipTV", "unknown"),
-                                      ("fact", "MicroPythonOS", "unknown"),
-                                      ("fact", "Hardware", "unknown")])
+        # None, and the placeholder DeviceInfo keeps when no board
+        # registered itself, both read "unknown".
+        for board in (None, "missing-hardware-info"):
+            DeviceInfo.set_hardware_id(board)
+            BuildInfo.version.release = None
+            items, _ = _content(self._open_about())
+            self.assertEqual(items[1:4], [("fact", "ClipTV", "unknown"),
+                                          ("fact", "MicroPythonOS", "unknown"),
+                                          ("fact", "Hardware", "unknown")])
+            self._close()
 
     def test_logo_falls_back_to_the_app_name(self):
         for path in (None, "M:" + APP + "/MANIFEST.JSON"):   # missing, not a PNG
@@ -415,13 +419,20 @@ class TestClipTVAbout(unittest.TestCase):
                              FontManager.getFont(size=size).line_height, text)
             if header:
                 self.assertEqual(_rgb(label.get_style_text_color(0)), primary)
-        # Help keeps the bottom-left back button the rest of ClipTV uses.
-        back = _floating(screen)
-        self.assertTrue(isinstance(back, lv.button))
-        x1, _, _, y2 = _coords(back)
-        self.assertEqual((x1, y2), (screen.get_style_pad_left(0) + 4,
-                                    DisplayMetrics.height() - 1
-                                    - screen.get_style_pad_bottom(0) - 4))
+        # Help keeps its back button where Settings and About have it.
+        w, h = DisplayMetrics.width(), DisplayMetrics.height()
+        self.assertEqual(_coords(_floating(screen)),
+                         (w - 50, h - 50, w - 1, h - 1))
+
+    def test_settings_back_button_is_in_the_same_corner(self):
+        self._open_settings()
+        screen = lv.screen_active()
+        screen.update_layout()
+        backs = [screen.get_child(i) for i in range(screen.get_child_count())
+                 if screen.get_child(i).has_flag(lv.obj.FLAG.FLOATING)]
+        self.assertEqual(len(backs), 1)
+        w, h = DisplayMetrics.width(), DisplayMetrics.height()
+        self.assertEqual(_coords(backs[0]), (w - 50, h - 50, w - 1, h - 1))
 
 
 if __name__ == "__main__":

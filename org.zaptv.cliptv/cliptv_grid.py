@@ -15,8 +15,8 @@ import cliptv_common
 
 UNASSIGNED_COLOR = 0x555555
 
-# The bottom-right corner square the About screen keeps for its back
-# button, the same size in every ZapTV app.
+# The bottom-right corner square the settings, Help and About screens
+# keep for their back button, the same size in every ZapTV app.
 BACK_CORNER_SIZE = 50
 
 
@@ -26,15 +26,17 @@ def add_floating_back_button(screen, corner=lv.ALIGN.BOTTOM_LEFT):
     It floats above the content and stays put while the page scrolls.
     Returns the object added to the screen.
 
-    Bottom-left by default: the button editor keeps Save, and the
-    playlist editor each row's buttons, at the right-hand edge.
+    Bottom-left by default, for the editors and the player: the button
+    editor keeps Save, and the playlist editor each row's buttons, at
+    the right-hand edge.
 
-    corner=lv.ALIGN.BOTTOM_RIGHT is for the About screen, laid out the
-    same way in every ZapTV app: the same round button, centred in a
-    BACK_CORNER_SIZE square that sits in the screen's corner itself
-    rather than inside its padding, so that centred content
-    DisplayMetrics.width() - 100 wide always clears it. The button keeps
-    its size and the whole square answers a tap. Returns the square.
+    corner=lv.ALIGN.BOTTOM_RIGHT is for the settings list, Help and
+    About, where every ZapTV app puts its back button: the same round
+    button, centred in a BACK_CORNER_SIZE square that sits in the
+    screen's corner itself rather than inside its padding, so that
+    centred content DisplayMetrics.width() - 100 wide always clears it.
+    The button keeps its size and the whole square answers a tap.
+    Returns the square.
     """
     size = max(32, DisplayMetrics.pct_of_height(15))
     if corner == lv.ALIGN.BOTTOM_RIGHT:
