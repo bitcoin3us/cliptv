@@ -30,7 +30,9 @@ a pig and a cat); add your own from a microSD card.
 - Audio clips: WAV. Video clips: MJPEG (`.mjpeg`) or raw RGB565 (`.rgb565`),
   with an optional companion `.wav` soundtrack of the same basename.
 - Settings page: assign buttons, buttons per screen, volume, DAC pin
-  configuration (2" board), and an About page.
+  configuration (2" board), a Help page (buttons, playlists, wiring and
+  clip formats) and an About page (versions, credits and licence, laid out
+  like the other ZapTV apps').
 
 ## Hardware
 
@@ -166,13 +168,28 @@ cp org.zaptv.cliptv/icon_64x64.png "dist/org.zaptv.cliptv_${v}_64x64.png"
 
 The launcher icon (`org.zaptv.cliptv/icon_64x64.png`) and the app store icon
 set (`store_icons/`) are generated from `artwork/cliptv-logo.svg`, the ZapTV
-family TV mark. After changing the SVG, regenerate them with:
+family TV mark. The About screen's logo
+(`org.zaptv.cliptv/res/cliptv_lockup.png`) is the family lockup: that mark
+beside `artwork/cliptv-wordmark.svg`. After changing either SVG, regenerate
+them with:
 
 ```bash
 python3 tools/build_assets.py           # --check only reports what would change
 ```
 
 It needs `rsvg-convert` (`brew install librsvg`) and Pillow.
+
+## Tests
+
+`tests/test_cliptv_about.py` checks the About screen (content, fit on a
+320x240 screen with the longest board name, the back button's corner, the
+OS light/dark theme) and that the Help page keeps the old text. It is a
+graphical test for the MicroPythonOS desktop build: from a MicroPythonOS
+checkout with the app linked in (see Installing), run
+
+```bash
+./scripts/test_runner.py /path/to/ClipTV/tests/test_cliptv_about.py
+```
 
 ## Licence
 

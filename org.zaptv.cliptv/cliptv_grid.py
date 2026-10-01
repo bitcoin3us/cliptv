@@ -15,26 +15,61 @@ import cliptv_common
 
 UNASSIGNED_COLOR = 0x555555
 
+# The bottom-right corner square the About screen keeps for its back
+# button, the same size in every ZapTV app.
+BACK_CORNER_SIZE = 50
 
-def add_floating_back_button(screen):
+
+def add_floating_back_button(screen, corner=lv.ALIGN.BOTTOM_LEFT):
     """Add a Lightning-Piggy-style floating circular back button.
 
-    Bottom-left, floats above the content and stays put while the page
-    scrolls. Returns the button.
+    It floats above the content and stays put while the page scrolls.
+    Returns the object added to the screen.
+
+    Bottom-left by default: the button editor keeps Save, and the
+    playlist editor each row's buttons, at the right-hand edge.
+
+    corner=lv.ALIGN.BOTTOM_RIGHT is for the About screen, laid out the
+    same way in every ZapTV app: the same round button, centred in a
+    BACK_CORNER_SIZE square that sits in the screen's corner itself
+    rather than inside its padding, so that centred content
+    DisplayMetrics.width() - 100 wide always clears it. The button keeps
+    its size and the whole square answers a tap. Returns the square.
     """
-    button = lv.button(screen)
-    button.add_flag(lv.obj.FLAG.FLOATING)
     size = max(32, DisplayMetrics.pct_of_height(15))
-    button.set_size(size, size)
+    if corner == lv.ALIGN.BOTTOM_RIGHT:
+        box = lv.obj(screen)
+        box.add_flag(lv.obj.FLAG.FLOATING)
+        box.remove_flag(lv.obj.FLAG.CLICKABLE)
+        box.remove_flag(lv.obj.FLAG.SCROLLABLE)
+        box.set_size(BACK_CORNER_SIZE, BACK_CORNER_SIZE)
+        box.set_style_bg_opa(lv.OPA.TRANSP, lv.PART.MAIN)
+        box.set_style_border_width(0, lv.PART.MAIN)
+        box.set_style_pad_all(0, lv.PART.MAIN)
+        # align() places a child inside its parent's padding; step back out.
+        box.align(lv.ALIGN.BOTTOM_RIGHT,
+                  screen.get_style_pad_right(lv.PART.MAIN),
+                  screen.get_style_pad_bottom(lv.PART.MAIN))
+        size = min(BACK_CORNER_SIZE, size)
+        button = lv.button(box)
+        button.set_size(size, size)
+        button.center()
+        button.set_ext_click_area((BACK_CORNER_SIZE - size) // 2)
+        floating = box
+    else:
+        button = lv.button(screen)
+        button.add_flag(lv.obj.FLAG.FLOATING)
+        button.set_size(size, size)
+        button.align(lv.ALIGN.BOTTOM_LEFT, 4, -4)
+        floating = button
     button.set_style_radius(lv.RADIUS_CIRCLE, lv.PART.MAIN)
     button.set_style_bg_opa(lv.OPA._80, lv.PART.MAIN)
-    button.align(lv.ALIGN.BOTTOM_LEFT, 4, -4)
     label = lv.label(button)
     label.set_text(lv.SYMBOL.LEFT)
     label.center()
     button.add_event_cb(lambda e: back_screen(), lv.EVENT.CLICKED, None)
     add_focus_border(button)
-    return button
+    return floating
 
 
 def default_button_text(config):

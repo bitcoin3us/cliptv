@@ -7,6 +7,7 @@
 # License, or (at your option) any later version. It is distributed WITHOUT
 # ANY WARRANTY; see the GNU General Public License (LICENSE) for details.
 
+import json
 import logging
 import os
 import sys
@@ -17,6 +18,7 @@ from mpos import (
     Activity,
     AudioManager,
     DisplayMetrics,
+    FontManager,
     InputActivity,
     Intent,
     SettingsActivity,
@@ -29,6 +31,79 @@ import cliptv_grid
 from video_player import VideoPlayerActivity
 
 logger = logging.getLogger(__name__)
+
+# The About screen, laid out the same way in every ZapTV app. The footer
+# strings are broken by hand wherever a line would not fit the footer
+# width (DisplayMetrics.width() - 100), so LVGL never splits a name.
+APP_SITE = "www.ZapTV.org"
+APP_CREDIT = "A fully open-source app\nby Richard Nakamoto"
+APP_LICENSE = ("© 2026 ZapTV.org. Free software:\n"
+               "GNU GPL v3 or later, no warranty.")
+APP_THIRD_PARTY = "Sample clips: see clips/README.md."
+LOGO_ASSET = "cliptv_lockup.png"
+LOGO_H = 44                 # About logo height in px, the same in every app
+# Tight spacing, so that the logo, three facts (a long board name takes two
+# lines), the site and five footer lines fit 240 px without scrolling. At
+# 12 px a line is 16 px tall; -3 closes the leading without glyphs touching.
+ABOUT_PAD_ROW = 3           # gap between the About screen's rows
+ABOUT_LINE_SPACE = -3       # leading inside the multi-line About labels
+_HW_ACRONYMS = ("lcd", "oled", "tft", "gps", "imu", "ir", "sd", "usb", "tv")
+
+
+def _hardware_id():
+    """The board id MicroPythonOS detected at boot, or None."""
+    try:
+        from mpos.device_info import DeviceInfo
+        return DeviceInfo.get_hardware_id()
+    except Exception:
+        return None
+
+
+def _os_version():
+    try:
+        from mpos.build_info import BuildInfo
+        return BuildInfo.version.release or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _pretty_hardware(board):
+    """waveshare_esp32_s3_touch_lcd_2 -> Waveshare ESP32 S3 Touch LCD 2,
+    or "unknown" when there is no board id to show."""
+    words = []
+    for token in str(board or "").replace("-", "_").split("_"):
+        if not token:
+            continue
+        # Model codes (esp32, s3, m5stack) and hardware acronyms both read
+        # wrong in title case, so anything with a digit stays uppercase.
+        if token in _HW_ACRONYMS or any(ch in "0123456789" for ch in token):
+            words.append(token.upper())
+        else:
+            words.append(token[0].upper() + token[1:])
+    return " ".join(words) or "unknown"
+
+
+def app_version(fullname):
+    """Our own version, read from the manifest we shipped with."""
+    for path in ("/apps/{}/MANIFEST.JSON", "apps/{}/MANIFEST.JSON"):
+        try:
+            with open(path.format(fullname)) as handle:
+                return json.load(handle).get("version") or "unknown"
+        except Exception:
+            pass
+    return "unknown"
+
+
+def resolve_res(fullname, name):
+    """LVGL-filesystem path of a bundled res/ image, or None."""
+    for prefix in ("/apps/{}/res/{}", "apps/{}/res/{}"):
+        path = prefix.format(fullname, name)
+        try:
+            os.stat(path)
+            return "M:" + path
+        except OSError:
+            pass
+    return None
 
 
 def pick_start_dir():
@@ -271,7 +346,7 @@ class ButtonEditorActivity(Activity):
             )
         ]
         # No "note" here: with four options it would push Save/Cancel below
-        # the 240px screen. The clips folder is documented on the About page.
+        # the 240px screen. The clips folder is documented on the Help page.
         intent = Intent(activity_class=InputActivity)
         intent.putExtra("setting", {
             "title": "This button plays",
@@ -670,8 +745,10 @@ class EditButtonsActivity(Activity):
         self.startActivity(intent)
 
 
-class AboutActivity(Activity):
-    """About page for ClipTV."""
+class HelpActivity(Activity):
+    """Help page for ClipTV: buttons, playlists and loops, the DAC wiring,
+    clip formats and the licence. One focusable label per paragraph, so a
+    keypad can step through (and scroll) the page."""
 
     def onCreate(self):
         screen = lv.obj()
@@ -753,6 +830,109 @@ class AboutActivity(Activity):
         return label
 
 
+class AboutActivity(Activity):
+    """Logo, the versions worth quoting in a bug report, where to find the
+    app, and its legal notices (GPL section 5(d): an interactive program
+    shows them). Every ZapTV app shares this layout, which fits a 320x240
+    screen without scrolling, even with the longest board name. Colours
+    come from the MicroPythonOS light/dark theme. How to use ClipTV is on
+    the Help page."""
+
+    def onCreate(self):
+        screen = lv.obj()
+        screen.set_style_pad_all(DisplayMetrics.pct_of_width(2), lv.PART.MAIN)
+        screen.set_flex_flow(lv.FLEX_FLOW.COLUMN)
+        screen.set_flex_align(lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER,
+                              lv.FLEX_ALIGN.START)
+        screen.set_style_pad_row(ABOUT_PAD_ROW, lv.PART.MAIN)
+        screen.set_style_border_width(0, lv.PART.MAIN)
+        screen.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF)
+        self.setContentView(screen)
+
+    def onResume(self, screen):
+        super().onResume(screen)
+        screen.clean()
+        self._add_logo(screen)
+        for name, value in ((cliptv_common.APP_NAME,
+                             app_version(cliptv_common.APP_ID)),
+                            ("MicroPythonOS", _os_version()),
+                            ("Hardware", _pretty_hardware(_hardware_id()))):
+            self._add_fact(screen, name, value)
+        site = lv.label(screen)
+        site.set_text(APP_SITE)
+        site.set_style_text_font(FontManager.getFont(size=16), lv.PART.MAIN)
+        for text in (APP_CREDIT, APP_LICENSE, APP_THIRD_PARTY):
+            self._add_footer(screen, text)
+        # Bottom-right, like every ZapTV app's About screen; the footer
+        # width keeps every line clear of it.
+        cliptv_grid.add_floating_back_button(screen, lv.ALIGN.BOTTOM_RIGHT)
+
+    def _add_logo(self, screen):
+        """The family lockup, LOGO_H tall, or the app name if it will not
+        load."""
+        path = resolve_res(cliptv_common.APP_ID, LOGO_ASSET)
+        if path:
+            img = lv.image(screen)
+            try:
+                img.set_src(path)
+                img.update_layout()
+                w0, h0 = img.get_width(), img.get_height()
+                if w0 > 0 and h0 > 0:
+                    # set_scale only scales what is DRAWN: the widget keeps
+                    # reserving the native size, so its box is resized to
+                    # match, or the layout gains nothing.
+                    img.set_scale(LOGO_H * 256 // h0)
+                    img.set_size(w0 * LOGO_H // h0, LOGO_H)
+                    return
+            except Exception as e:
+                logger.warning("About logo failed: %s", e)
+            img.delete()
+        label = lv.label(screen)
+        label.set_text(cliptv_common.APP_NAME)
+        label.set_style_text_font(FontManager.getFont(size=28), lv.PART.MAIN)
+
+    def _add_footer(self, screen, text):
+        # DisplayMetrics.width() - 100 wide and centred, which keeps every
+        # line clear of the 50 px back button in the bottom-right corner.
+        label = lv.label(screen)
+        label.set_text(text)
+        label.set_style_text_font(FontManager.getFont(size=12), lv.PART.MAIN)
+        label.set_style_text_opa(lv.OPA._60, lv.PART.MAIN)
+        label.set_style_text_line_space(ABOUT_LINE_SPACE, lv.PART.MAIN)
+        label.set_long_mode(lv.label.LONG_MODE.WRAP)
+        label.set_width(DisplayMetrics.width() - 100)
+        label.set_style_text_align(lv.TEXT_ALIGN.CENTER, lv.PART.MAIN)
+
+    def _add_fact(self, screen, name, value):
+        # A transparent full-width row: the name on the left, the value
+        # right-aligned in whatever width the name leaves.
+        row = lv.obj(screen)
+        row.set_width(lv.pct(100))
+        row.set_height(lv.SIZE_CONTENT)
+        row.set_style_bg_opa(lv.OPA.TRANSP, lv.PART.MAIN)
+        row.set_style_border_width(0, lv.PART.MAIN)
+        row.set_style_pad_all(0, lv.PART.MAIN)
+        row.set_style_pad_column(6, lv.PART.MAIN)
+        row.set_flex_flow(lv.FLEX_FLOW.ROW)
+        row.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF)
+        row.remove_flag(lv.obj.FLAG.SCROLLABLE)
+        row.set_flex_align(lv.FLEX_ALIGN.SPACE_BETWEEN, lv.FLEX_ALIGN.CENTER,
+                           lv.FLEX_ALIGN.CENTER)
+        left = lv.label(row)
+        left.set_text(name)
+        left.set_style_text_font(FontManager.getFont(size=14), lv.PART.MAIN)
+        left.set_style_text_opa(lv.OPA._60, lv.PART.MAIN)
+        right = lv.label(row)
+        right.set_text(value)
+        right.set_style_text_font(FontManager.getFont(size=14), lv.PART.MAIN)
+        # Board names run long (Waveshare ESP32 S3 Touch LCD 2); wrap rather
+        # than clip, since a half-shown board name is no use in a bug report.
+        right.set_long_mode(lv.label.LONG_MODE.WRAP)
+        right.set_style_text_line_space(ABOUT_LINE_SPACE, lv.PART.MAIN)
+        right.set_flex_grow(1)
+        right.set_style_text_align(lv.TEXT_ALIGN.RIGHT, lv.PART.MAIN)
+
+
 class CliptvSettings(SettingsActivity):
     """ClipTV settings page."""
 
@@ -822,11 +1002,18 @@ class CliptvSettings(SettingsActivity):
                 "changed_callback": self._pins_changed,
             },
             {
+                "title": "Help",
+                "key": "help",
+                "ui": "activity",
+                "activity_class": HelpActivity,
+                "placeholder": "Buttons, playlists, wiring and clips",
+            },
+            {
                 "title": "About",
                 "key": "about",
                 "ui": "activity",
                 "activity_class": AboutActivity,
-                "placeholder": "Version, wiring and clip formats",
+                "placeholder": "Version, credits and licence",
             },
         ])
         return intent
